@@ -521,6 +521,7 @@ async function enableCloud(fb, hid, creator){
 }
 
 /* ============ الشيتات ============ */
+function goHome(date){ S.view='home'; if(date) S.month=date.slice(0,7)<=thisMonth()?date.slice(0,7):thisMonth(); render(); window.scrollTo({top:0,behavior:'smooth'}); }
 function openSheet(type, draft){ sheet={type,draft}; renderSheet(); }
 function closeSheet(){ sheet=null; renderSheet(); }
 function renderSheet(){
@@ -636,11 +637,11 @@ document.addEventListener('click', async ev => {
     saveexp(){ const d=sheet.draft, amt=parseNum(d.amount);
       if(!(amt>0)) return toast('اكتب المبلغ');
       if(d.type==='in'){ Store.putExp({id:d.id,type:'in',amount:Math.round(amt*100)/100,src:d.src||'أخرى',catId:'',subId:'',date:d.date||today(),note:(d.note||'').trim(),by:d.by||settings.userName,remId:'',createdAt:d.createdAt||Date.now()});
-        closeSheet(); return toast(d._new?'اتسجل الوارد ✓':'اتعدّل ✓'); }
+        closeSheet(); if(d._new) goHome(d.date); return toast(d._new?'اتسجل الوارد ✓':'اتعدّل ✓'); }
       const e={id:d.id,type:'out',amount:Math.round(amt*100)/100,catId:d.catId,subId:d.subId||'',date:d.date||today(),note:(d.note||'').trim(),by:d.by||settings.userName,remId:d.remId||'',createdAt:d.createdAt||Date.now()};
       Store.putExp(e);
       if(e.remId){ const r=S.rems.find(x=>x.id===e.remId); if(r) Store.putRem({...r,lastAmount:e.amount}); }
-      closeSheet(); toast(d._new?'اتسجل ✓':'اتعدّل ✓'); },
+      closeSheet(); if(d._new) goHome(e.date); toast(d._new?'اتسجل ✓':'اتعدّل ✓'); },
     delexp(){ if(confirm('تحذف المصروف ده؟')){ Store.delExp(sheet.draft.id); closeSheet(); toast('اتحذف'); } },
     // categories
     newcat(){ openSheet('cat',{_new:true,id:uid(8),name:'',color:COLORS[S.cats.length%COLORS.length],budget:'',subs:[]}); },
