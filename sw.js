@@ -1,5 +1,5 @@
 // مصروف البيت: يخلّي التطبيق يفتح من غير نت
-const VERSION = 'masroof-v1';
+const VERSION = 'masroof-v2';
 const SHELL = ['./', './index.html', './manifest.json',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 const FB = 'https://www.gstatic.com/firebasejs/10.12.2/';

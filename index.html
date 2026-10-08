@@ -207,7 +207,12 @@ const cat = id => S.cats.find(c=>c.id===id);
 const catName = id => cat(id)?.name || 'بند محذوف';
 const catColor = id => cat(id)?.color || '#94A3B8';
 const subName = (cid,sid) => sid ? (cat(cid)?.subs.find(s=>s.id===sid)?.name || '') : '';
-const label = e => subName(e.catId,e.subId) || catName(e.catId);
+const label = e => isIn(e) ? (e.src||'وارد') : (subName(e.catId,e.subId) || catName(e.catId));
+const isIn = e => e.type==='in';
+const outs = () => S.exps.filter(e=>!isIn(e));
+const ins = () => S.exps.filter(isIn);
+const INC_SRC = ['مرتب','شغل إضافي','جمعية','أخرى'];
+const incSources = () => [...new Set([...INC_SRC, ...ins().map(e=>e.src).filter(Boolean)])];
 const people = () => { const s=new Set([settings.userName]); S.exps.forEach(e=>e.by&&s.add(e.by)); return [...s].filter(Boolean); };
 
 /* ============ التخزين ============ */
@@ -308,13 +313,16 @@ function dueReminders(){
 }
 
 function vHome(){
-  const ex = S.exps.filter(e=>e.date.startsWith(S.month));
-  const total = sum(ex), prev = sum(S.exps.filter(e=>e.date.startsWith(addMonth(S.month,-1))));
+  const ex = outs().filter(e=>e.date.startsWith(S.month));
+  const inc = sum(ins().filter(e=>e.date.startsWith(S.month)));
+  const total = sum(ex), prev = sum(outs().filter(e=>e.date.startsWith(addMonth(S.month,-1))));
   const diff = prev ? Math.round((total-prev)/prev*100) : null;
   const byP = {}; ex.forEach(e=>byP[e.by||'—']=(byP[e.by||'—']||0)+(+e.amount));
   const budgetTotal = S.cats.reduce((t,c)=>t+(+c.budget||0),0);
 
   let h = monthBar();
+  if(inc) h += `<div class="card"><div class="row between"><div><h3 style="margin:0 0 2px">الوارد</h3><div class="amt down" style="font-size:20px">${money(inc)}</div></div>
+    <div style="text-align:left"><h3 style="margin:0 0 2px">الفاضل</h3><div class="amt ${inc-total<0?'up':''}" style="font-size:20px">${money(inc-total)}</div></div></div></div>`;
   h += `<div class="card"><h3>اتصرف الشهر ده</h3><div class="big">${money(total)}</div>
     ${budgetTotal?`<div class="small muted">من ميزانية ${money(budgetTotal)} · فاضل ${money(Math.max(0,budgetTotal-total))}</div>`:''}
     ${diff!==null?`<div class="small ${diff>0?'up':'down'}">${diff>0?'↑':'↓'} ${num(Math.abs(diff))}٪ عن الشهر اللي قبله</div>`:''}
@@ -341,13 +349,16 @@ function vHome(){
       <div class="bar"><i style="width:${pct}%;background:${over?'var(--danger)':c.color}"></i></div></button>`;
   }).join('')}</div>`;
 
-  const recent = [...ex].sort(byDate).slice(0,5);
-  h += `<div class="card"><div class="row between"><h3 style="margin:0">آخر المصاريف</h3>${ex.length>5?'<button class="link" data-act="go" data-v="list">الكل</button>':''}</div>
+  const allM = S.exps.filter(e=>e.date.startsWith(S.month)), recent = [...allM].sort(byDate).slice(0,5);
+  h += `<div class="card"><div class="row between"><h3 style="margin:0">آخر المصاريف</h3>${allM.length>5?'<button class="link" data-act="go" data-v="list">الكل</button>':''}</div>
     ${recent.length ? `<div style="margin-top:6px">${recent.map(itemHTML).join('')}</div>` : '<div class="empty">لسه مفيش مصاريف الشهر ده.<br>اضغط + علشان تسجّل أول مصروف.</div>'}</div>`;
   return h;
 }
 const byDate = (a,b) => b.date.localeCompare(a.date) || (b.createdAt||0)-(a.createdAt||0);
 function itemHTML(e){
+  if(isIn(e)) return `<button class="item" data-act="edit" data-id="${e.id}"><span class="dot" style="background:var(--accent);outline:2px solid var(--accent-soft)"></span>
+    <span class="grow"><div class="t">${esc(label(e))}</div><div class="s">${['وارد',e.note,people().length>1?e.by:''].filter(Boolean).map(esc).join(' · ')}</div></span>
+    <span class="amt down">+${money(e.amount)}</span></button>`;
   const sub = subName(e.catId,e.subId);
   const meta = [sub?catName(e.catId):'', e.note, people().length>1?e.by:''].filter(Boolean).map(esc).join(' · ');
   return `<button class="item" data-act="edit" data-id="${e.id}"><span class="dot" style="background:${catColor(e.catId)}"></span>
@@ -357,16 +368,20 @@ function itemHTML(e){
 
 function vList(){
   let ex = S.exps.filter(e=>e.date.startsWith(S.month));
-  if(S.list.cat) ex = ex.filter(e=>e.catId===S.list.cat);
+  if(S.list.cat==='_in') ex = ex.filter(isIn);
+  else if(S.list.cat) ex = ex.filter(e=>!isIn(e) && e.catId===S.list.cat);
   ex.sort(byDate);
   let h = monthBar();
   h += `<div class="chips" style="margin-top:12px"><button class="chip ${!S.list.cat?'on':''}" data-act="lcat" data-id="">الكل</button>
+    <button class="chip ${S.list.cat==='_in'?'on':''}" data-act="lcat" data-id="_in">الوارد</button>
     ${S.cats.map(c=>`<button class="chip ${S.list.cat===c.id?'on':''}" data-act="lcat" data-id="${c.id}">${esc(c.name)}</button>`).join('')}</div>`;
-  h += `<div class="row between small muted" style="margin:4px 4px 0"><span>${num(ex.length)} مصروف</span><span class="amt">${money(sum(ex))}</span></div>`;
+  const eo = ex.filter(e=>!isIn(e)), ei = ex.filter(isIn);
+  h += `<div class="row between small muted" style="margin:4px 4px 0"><span>${num(eo.length)} مصروف${ei.length?` · ${num(ei.length)} وارد`:''}</span>
+    <span class="amt">${eo.length?money(sum(eo)):''}${ei.length?` <span class="down">+${money(sum(ei))}</span>`:''}</span></div>`;
   if(!ex.length) return h + '<div class="card empty">مفيش مصاريف هنا.</div>';
   const days = {}; ex.forEach(e=>(days[e.date]=days[e.date]||[]).push(e));
   for(const d of Object.keys(days)){
-    h += `<div class="dayhead row between"><span>${dayName(d)}</span><span>${money(sum(days[d]))}</span></div>
+    h += `<div class="dayhead row between"><span>${dayName(d)}</span><span>${money(sum(days[d].filter(e=>!isIn(e))))}</span></div>
       <div class="card" style="margin-top:6px;padding:4px 16px">${days[d].map(itemHTML).join('')}</div>`;
   }
   return h;
@@ -389,7 +404,8 @@ function ranges(){
     }
   }
 }
-function repFilter([f,t]){ return S.exps.filter(e=>e.date>=f && e.date<=t && (!S.rep.cat || e.catId===S.rep.cat)); }
+function repIncome([f,t]){ return sum(ins().filter(e=>e.date>=f && e.date<=t)); }
+function repFilter([f,t]){ return outs().filter(e=>e.date>=f && e.date<=t && (!S.rep.cat || e.catId===S.rep.cat)); }
 
 function vReports(){
   const R = S.rep, {cur,prev} = ranges();
@@ -417,6 +433,7 @@ function vReports(){
 
   h += `<div class="card"><h3>${fmtD(cur[0])} ← ${fmtD(cur[1])}</h3><div class="big">${money(total)}</div>
     <div class="small muted">${num(ex.length)} مصروف</div>
+    ${!R.cat && repIncome(cur) ? `<div class="small" style="margin-top:4px">الوارد <b class="down">${money(repIncome(cur))}</b> · الفاضل <b class="${repIncome(cur)-total<0?'up':''}">${money(repIncome(cur)-total)}</b></div>`:''}
     ${diff!==null?`<div class="small ${diff>0?'up':'down'}">${diff>0?'↑':'↓'} ${num(Math.abs(diff))}٪ عن الفترة اللي قبلها (${money(ptotal)})</div>`:''}</div>`;
 
   // اتجاه شهري
@@ -518,7 +535,20 @@ function renderSheet(){
 function shExp(){
   const d = sheet.draft, c = cat(d.catId) || S.cats[0];
   const rem = d.remId && S.rems.find(r=>r.id===d.remId);
-  return `<h2>${d._new?'مصروف جديد':'تعديل مصروف'}</h2>
+  const inn = d.type==='in';
+  const tg = `<div class="seg" style="margin:6px 0 10px">${d.remId?'':`<button class="${inn?'':'on'}" data-act="dtype" data-v="out">مصروف</button><button class="${inn?'on':''}" data-act="dtype" data-v="in">وارد</button>`}</div>`;
+  if(inn) return `<h2>${d._new?'وارد جديد':'تعديل وارد'}</h2>${tg}
+    <input class="inp amtinp" data-df="amount" inputmode="decimal" placeholder="٠" value="${esc(d.amount)}" autocomplete="off" style="color:var(--accent)">
+    <label class="f">المصدر</label>
+    <div class="chips wrapc">${incSources().map(x=>`<button class="chip ${d.src===x?'on':''}" data-act="dsrc" data-v="${esc(x)}">${esc(x)}</button>`).join('')}
+      <button class="chip add" data-act="dnewsrc">+ جديد</button></div>
+    <label class="f">التاريخ</label><input type="date" class="inp" data-df="date" value="${d.date}">
+    <label class="f">ملاحظة (اختياري)</label><input class="inp" data-df="note" value="${esc(d.note)}" placeholder="مثلاً: مرتب شهر أكتوبر">
+    <label class="f">مين استلم</label>
+    <div class="chips wrapc">${people().map(p=>`<button class="chip ${d.by===p?'on':''}" data-act="dby" data-v="${esc(p)}">${esc(p)}</button>`).join('')}</div>
+    <button class="btn" data-act="saveexp">حفظ</button>
+    ${d._new?'':'<button class="btn danger" data-act="delexp">حذف</button>'}`;
+  return `<h2>${d._new?'مصروف جديد':'تعديل مصروف'}</h2>${d._new&&!d.remId?tg:''}
     ${rem?`<p class="small muted" style="margin:0">${esc(rem.name)}${rem.lastAmount?` · آخر مرة ${money(rem.lastAmount)}`:''}</p>`:''}
     <input class="inp amtinp" data-df="amount" inputmode="decimal" placeholder="٠" value="${esc(d.amount)}" autocomplete="off">
     <label class="f">البند</label>
@@ -597,12 +627,17 @@ document.addEventListener('click', async ev => {
     dcat(){ sheet.draft.catId=id; sheet.draft.subId=''; renderSheet(); },
     dsub(){ sheet.draft.subId=id; renderSheet(); },
     dby(){ sheet.draft.by=v; renderSheet(); },
+    dtype(){ sheet.draft.type=v; if(v==='in'&&!sheet.draft.src) sheet.draft.src='مرتب'; renderSheet(); },
+    dsrc(){ sheet.draft.src=v; renderSheet(); },
+    dnewsrc(){ const n=prompt('اسم المصدر'); if(n&&n.trim()){ sheet.draft.src=n.trim(); renderSheet(); } },
     dnewsub(){ const n=prompt('اسم البند الفرعي الجديد'); if(!n||!n.trim()) return;
       const list=clone(S.cats), c=list.find(x=>x.id===sheet.draft.catId), s={id:uid(8),name:n.trim()};
       c.subs.push(s); Store.saveCats(list); sheet.draft.subId=s.id; renderSheet(); },
     saveexp(){ const d=sheet.draft, amt=parseNum(d.amount);
       if(!(amt>0)) return toast('اكتب المبلغ');
-      const e={id:d.id,amount:Math.round(amt*100)/100,catId:d.catId,subId:d.subId||'',date:d.date||today(),note:(d.note||'').trim(),by:d.by||settings.userName,remId:d.remId||'',createdAt:d.createdAt||Date.now()};
+      if(d.type==='in'){ Store.putExp({id:d.id,type:'in',amount:Math.round(amt*100)/100,src:d.src||'أخرى',catId:'',subId:'',date:d.date||today(),note:(d.note||'').trim(),by:d.by||settings.userName,remId:'',createdAt:d.createdAt||Date.now()});
+        closeSheet(); return toast(d._new?'اتسجل الوارد ✓':'اتعدّل ✓'); }
+      const e={id:d.id,type:'out',amount:Math.round(amt*100)/100,catId:d.catId,subId:d.subId||'',date:d.date||today(),note:(d.note||'').trim(),by:d.by||settings.userName,remId:d.remId||'',createdAt:d.createdAt||Date.now()};
       Store.putExp(e);
       if(e.remId){ const r=S.rems.find(x=>x.id===e.remId); if(r) Store.putRem({...r,lastAmount:e.amount}); }
       closeSheet(); toast(d._new?'اتسجل ✓':'اتعدّل ✓'); },
@@ -669,12 +704,16 @@ window.addEventListener('online', render); window.addEventListener('offline', re
 
 /* ============ تصدير ============ */
 function exportCSV(){
-  const {cur} = ranges(), ex = repFilter(cur).sort((a,b)=>a.date.localeCompare(b.date));
+  const {cur} = ranges(), [f,t]=cur;
+  const ex = [...repFilter(cur), ...(S.rep.cat?[]:ins().filter(e=>e.date>=f&&e.date<=t))].sort((a,b)=>a.date.localeCompare(b.date));
   if(!ex.length) return toast('مفيش مصاريف في الفترة دي');
   const q = s => `"${String(s??'').replace(/"/g,'""')}"`;
-  const lines = [['التاريخ','البند','البند الفرعي','المبلغ','مين دفع','ملاحظة'].map(q).join(',')];
-  ex.forEach(e=>lines.push([e.date,catName(e.catId),subName(e.catId,e.subId),e.amount,e.by,e.note].map(q).join(',')));
-  lines.push(['','','الإجمالي',sum(ex),'',''].map(q).join(','));
+  const lines = [['التاريخ','النوع','البند / المصدر','البند الفرعي','المبلغ','مين','ملاحظة'].map(q).join(',')];
+  ex.forEach(e=>lines.push(isIn(e) ? [e.date,'وارد',e.src,'',e.amount,e.by,e.note].map(q).join(',')
+    : [e.date,'مصروف',catName(e.catId),subName(e.catId,e.subId),e.amount,e.by,e.note].map(q).join(',')));
+  const to=sum(ex.filter(e=>!isIn(e))), ti=sum(ex.filter(isIn));
+  lines.push(['','','','إجمالي المصروف',to,'',''].map(q).join(','));
+  if(ti){ lines.push(['','','','إجمالي الوارد',ti,'',''].map(q).join(',')); lines.push(['','','','الفاضل',ti-to,'',''].map(q).join(',')); }
   shareFile(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}), `masroof-${cur[0]}_${cur[1]}.csv`);
 }
 function shareFile(blob,name){
