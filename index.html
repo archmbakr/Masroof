@@ -125,6 +125,7 @@ nav.tabs svg{width:24px;height:24px}
 .sheet{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:22px 22px 0 0;
   padding:8px 16px calc(20px + env(safe-area-inset-bottom))}
 .grab{width:40px;height:5px;border-radius:5px;background:var(--line);margin:4px auto 10px}
+.close{position:sticky;top:0;float:left;width:40px;height:40px;margin:-4px -4px 0 0;border-radius:50%;background:var(--card);box-shadow:var(--shadow);font-size:18px;color:var(--muted);z-index:2}
 .sheet h2{margin:0 0 4px;font-size:19px}
 @keyframes up{from{transform:translateY(30px);opacity:.6}}
 @keyframes fade{from{opacity:0}}
@@ -529,7 +530,7 @@ function renderSheet(){
   if(!sheet){ root.innerHTML=''; return; }
   const old = root.querySelector('.sheet'), scroll = old?.scrollTop||0;
   const body = {exp:shExp, cat:shCat, rem:shRem, code:shCode, synccreate:()=>`<h2>تفعيل المزامنة</h2>${createSyncHTML()}`, syncjoin:()=>`<h2>انضمام</h2>${joinHTML()}`}[sheet.type]();
-  root.innerHTML = `<div class="scrim${old?'':' anim'}" data-act="scrim"><div class="sheet"><div class="grab"></div>${body}</div></div>`;
+  root.innerHTML = `<div class="scrim${old?'':' anim'}" data-act="scrim"><div class="sheet"><div class="grab"></div><button class="close" data-act="close" aria-label="رجوع">✕</button>${body}<button class="btn ghost" data-act="close">إلغاء</button></div></div>`;
   root.querySelector('.sheet').scrollTop = scroll;
 }
 
@@ -615,6 +616,7 @@ document.addEventListener('click', async ev => {
     'do-join'(){ const o=parseJoin($('#jcode').value); if(!o) return toast('الكود مش صحيح، انسخه كله تاني');
       enableCloud(o.c, o.h, false).then(()=>{ if(!S.err) toast('انضميت ✓'); }); },
     retry(){ start(); },
+    close(){ closeSheet(); },
     // nav
     go(){ S.view=v; window.scrollTo(0,0); render(); },
     mprev(){ S.month=addMonth(S.month,-1); render(); },
