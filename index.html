@@ -45,6 +45,10 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .brand{font-weight:700;font-size:19px}
 .pill{font-size:12px;padding:4px 10px;border-radius:99px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 .pill.off{background:var(--warn-soft);color:var(--warn)}
+.hbtn{width:38px;height:38px;border-radius:12px;background:var(--card);box-shadow:var(--shadow);display:grid;place-items:center;color:var(--accent)}
+.hbtn svg{width:20px;height:20px}
+.info{display:flex;flex-direction:column;gap:2px;font-size:13px;color:var(--muted);margin:10px 4px 0}
+.info b{color:var(--ink);font-weight:600} .info b.up{color:var(--danger)}
 .pill.local{background:var(--line);color:var(--muted)}
 
 /* cards */
@@ -190,6 +194,9 @@ const monthName = ym => { const [y,m]=ym.split('-').map(Number); return new Date
 const shortMonth = ym => { const [y,m]=ym.split('-').map(Number); return new Date(y,m-1,1).toLocaleDateString('ar-EG',{month:'short'}); };
 const dayName = d => { const [y,m,dd]=d.split('-').map(Number); return new Date(y,m-1,dd).toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'}); };
 const addMonth = (ym,k) => { const [y,m]=ym.split('-').map(Number); return ds(new Date(y,m-1+k,1)).slice(0,7); };
+const when = ts => { if(!ts) return '';
+  const d=new Date(ts), t=d.toLocaleTimeString('ar-EG',{hour:'numeric',minute:'2-digit'}), k=ds(d), y=new Date(); y.setDate(y.getDate()-1);
+  return k===today() ? 'النهارده '+t : k===ds(y) ? 'امبارح '+t : d.toLocaleDateString('ar-EG',{day:'numeric',month:'short'})+' '+t; };
 const sum = a => a.reduce((t,e)=>t+(+e.amount||0),0);
 let toastT; const toast = msg => { const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); };
 
@@ -241,7 +248,7 @@ const Cloud = {
     S.cats = clone(DEFAULT_CATS);
     const opt = {includeMetadataChanges:true};
     const fail = e => { console.error(e); toast('مشكلة في المزامنة: راجع إعدادات Firebase'); };
-    fs.onSnapshot(fs.collection(this.db,this.base+'/expenses'), opt, s=>{ S.exps=s.docs.map(d=>d.data()); S.pend.e=s.metadata.hasPendingWrites; S.ready=true; render(); }, fail);
+    fs.onSnapshot(fs.collection(this.db,this.base+'/expenses'), opt, s=>{ S.exps=s.docs.map(d=>d.data()); S.pend.e=s.metadata.hasPendingWrites; if(!s.metadata.fromCache && !s.metadata.hasPendingWrites){ settings.lastSync=Date.now(); saveSettings(); } S.ready=true; render(); }, fail);
     fs.onSnapshot(fs.collection(this.db,this.base+'/reminders'), opt, s=>{ S.rems=s.docs.map(d=>d.data()); S.pend.r=s.metadata.hasPendingWrites; render(); }, fail);
     fs.onSnapshot(fs.doc(this.db,this.base+'/meta/categories'), opt, s=>{ if(s.exists()) S.cats=s.data().list; S.pend.c=s.metadata.hasPendingWrites; render(); }, fail);
     setTimeout(()=>{ if(!S.ready){ S.ready=true; render(); } }, 2500);
@@ -292,7 +299,7 @@ function render(){
   const views = {home:vHome, list:vList, rep:vReports, set:vSettings};
   const tab = (k,t) => `<button class="${S.view===k?'on':''}" data-act="go" data-v="${k}">${ICON[k]}${t}</button>`;
   app.innerHTML = `
-    <header class="top"><div class="wrap"><div class="brand">مصروف البيت</div>${statusPill()}</div></header>
+    <header class="top"><div class="wrap"><div class="brand">مصروف البيت</div><div class="row" style="gap:8px">${statusPill()}<button class="hbtn" data-act="exportmenu" aria-label="حفظ وتصدير"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></button></div></div></header>
     <main class="wrap">${views[S.view]()}</main>
     <button class="fab" data-act="add" aria-label="تسجيل مصروف">+</button>
     <nav class="tabs"><div class="wrap">${tab('home','الرئيسية')}${tab('list','المصاريف')}${tab('rep','التقارير')}${tab('set','الإعدادات')}</div></nav>`;
@@ -313,6 +320,15 @@ function dueReminders(){
     .sort((a,b)=>a.day-b.day);
 }
 
+function infoLines(){
+  const last = S.exps.reduce((a,e)=>(e.createdAt||0)>(a?.createdAt||0)?e:a, null);
+  const l1 = last ? `آخر تسجيل: <b>${when(last.createdAt)}</b>${people().length>1&&last.by?' · '+esc(last.by):''}` : 'لسه ما اتسجلش حاجة';
+  let l2;
+  if(settings.mode==='cloud') l2 = `آخر مزامنة أونلاين: <b>${settings.lastSync?when(settings.lastSync):'لسه'}</b>`;
+  else { const old = !settings.lastBackup || Date.now()-settings.lastBackup>7*864e5;
+    l2 = `مش متزامن أونلاين · آخر نسخة احتياطية: <b class="${old?'up':''}">${settings.lastBackup?when(settings.lastBackup):'لسه ما اتعملتش'}</b>`; }
+  return `<div class="info"><span>${l1}</span><span>${l2}</span></div>`;
+}
 function vHome(){
   const ex = outs().filter(e=>e.date.startsWith(S.month));
   const inc = sum(ins().filter(e=>e.date.startsWith(S.month)));
@@ -321,7 +337,7 @@ function vHome(){
   const byP = {}; ex.forEach(e=>byP[e.by||'—']=(byP[e.by||'—']||0)+(+e.amount));
   const budgetTotal = S.cats.reduce((t,c)=>t+(+c.budget||0),0);
 
-  let h = monthBar();
+  let h = infoLines() + monthBar();
   if(inc) h += `<div class="card"><div class="row between"><div><h3 style="margin:0 0 2px">الوارد</h3><div class="amt down" style="font-size:20px">${money(inc)}</div></div>
     <div style="text-align:left"><h3 style="margin:0 0 2px">الفاضل</h3><div class="amt ${inc-total<0?'up':''}" style="font-size:20px">${money(inc-total)}</div></div></div></div>`;
   h += `<div class="card"><h3>اتصرف الشهر ده</h3><div class="big">${money(total)}</div>
@@ -340,7 +356,7 @@ function vHome(){
       </button>`).join('')}</div>`;
   }
 
-  h += `<div class="card"><h3>حسب البند</h3>${S.cats.map(c=>{
+  h += `<div class="card"><div class="row between"><h3 style="margin:0 0 6px">حسب البند</h3><button class="link" data-act="newcat">+ بند جديد</button></div>${S.cats.map(c=>{
     const v = sum(ex.filter(e=>e.catId===c.id));
     const b = +c.budget||0, pct = b ? Math.min(100, v/b*100) : (total ? v/total*100 : 0);
     const over = b && v>b;
@@ -451,7 +467,7 @@ function vReports(){
       <div class="row between small muted"><span>${num(g.n)} مصروف</span><span>${num(total?g.v/total*100:0)}٪</span></div>
       <div class="bar" style="margin-top:4px"><i style="width:${total?g.v/total*100:0}%;background:${g.color}"></i></div></div>`).join('')
     : '<div class="empty">مفيش مصاريف في الفترة دي.</div>'}</div>`;
-  h += `<button class="btn ghost" data-act="csv">تصدير لـ Excel</button>`;
+  h += `<button class="btn ghost" data-act="csv">تصدير الفترة دي لـ Excel</button>`;
   return h;
 }
 
@@ -529,11 +545,19 @@ function renderSheet(){
   const root=$('#sheet');
   if(!sheet){ root.innerHTML=''; return; }
   const old = root.querySelector('.sheet'), scroll = old?.scrollTop||0;
-  const body = {exp:shExp, cat:shCat, rem:shRem, code:shCode, synccreate:()=>`<h2>تفعيل المزامنة</h2>${createSyncHTML()}`, syncjoin:()=>`<h2>انضمام</h2>${joinHTML()}`}[sheet.type]();
+  const body = {export:shExport, exp:shExp, cat:shCat, rem:shRem, code:shCode, synccreate:()=>`<h2>تفعيل المزامنة</h2>${createSyncHTML()}`, syncjoin:()=>`<h2>انضمام</h2>${joinHTML()}`}[sheet.type]();
   root.innerHTML = `<div class="scrim${old?'':' anim'}" data-act="scrim"><div class="sheet"><div class="grab"></div><button class="close" data-act="close" aria-label="رجوع">✕</button>${body}<button class="btn ghost" data-act="close">إلغاء</button></div></div>`;
   root.querySelector('.sheet').scrollTop = scroll;
 }
 
+function shExport(){
+  return `<h2>حفظ وتصدير</h2>
+    <p class="small muted" style="margin:0 0 4px">الملف بيفتحلك قايمة المشاركة: تبعته واتساب أو إيميل أو تحفظه في الملفات.</p>
+    <button class="btn" data-act="xmonth">Excel لشهر ${monthName(S.month)}</button>
+    <button class="btn ghost" data-act="xall">Excel لكل المسجل</button>
+    <button class="btn ghost" data-act="xbackup">نسخة احتياطية (للاسترجاع)</button>
+    <p class="small muted" style="margin-top:12px">${settings.lastBackup?'آخر نسخة احتياطية: '+when(settings.lastBackup):'لسه ما عملتش نسخة احتياطية'}</p>`;
+}
 function shExp(){
   const d = sheet.draft, c = cat(d.catId) || S.cats[0];
   const rem = d.remId && S.rems.find(r=>r.id===d.remId);
@@ -554,7 +578,7 @@ function shExp(){
     ${rem?`<p class="small muted" style="margin:0">${esc(rem.name)}${rem.lastAmount?` · آخر مرة ${money(rem.lastAmount)}`:''}</p>`:''}
     <input class="inp amtinp" data-df="amount" inputmode="decimal" placeholder="٠" value="${esc(d.amount)}" autocomplete="off">
     <label class="f">البند</label>
-    <div class="chips wrapc">${S.cats.map(x=>`<button class="chip ${x.id===c.id?'on':''}" data-act="dcat" data-id="${x.id}">${esc(x.name)}</button>`).join('')}</div>
+    <div class="chips wrapc">${S.cats.map(x=>`<button class="chip ${x.id===c.id?'on':''}" data-act="dcat" data-id="${x.id}">${esc(x.name)}</button>`).join('')}<button class="chip add" data-act="dnewcat">+ بند</button></div>
     <label class="f">البند الفرعي (اختياري)</label>
     <div class="chips wrapc"><button class="chip ${!d.subId?'on':''}" data-act="dsub" data-id="">بدون</button>
       ${c.subs.map(s=>`<button class="chip ${d.subId===s.id?'on':''}" data-act="dsub" data-id="${s.id}">${esc(s.name)}</button>`).join('')}
@@ -633,6 +657,13 @@ document.addEventListener('click', async ev => {
     dtype(){ sheet.draft.type=v; if(v==='in'&&!sheet.draft.src) sheet.draft.src='مرتب'; renderSheet(); },
     dsrc(){ sheet.draft.src=v; renderSheet(); },
     dnewsrc(){ const n=prompt('اسم المصدر'); if(n&&n.trim()){ sheet.draft.src=n.trim(); renderSheet(); } },
+    dnewcat(){ const n=prompt('اسم البند الجديد'); if(!n||!n.trim()) return;
+      const c={id:uid(8),name:n.trim(),color:COLORS[S.cats.length%COLORS.length],budget:0,subs:[]};
+      Store.saveCats([...clone(S.cats),c]); sheet.draft.catId=c.id; sheet.draft.subId=''; renderSheet(); toast('اتضاف البند ✓'); },
+    exportmenu(){ openSheet('export',{}); },
+    xmonth(){ closeSheet(); const m=S.month; exportXlsx(periodEntries([m+'-01',m+'-31']), `masroof-${m}.xlsx`); },
+    xall(){ closeSheet(); exportXlsx(periodEntries(['0000-01-01','9999-12-31']), `masroof-all-${today()}.xlsx`); },
+    xbackup(){ closeSheet(); doBackup(); },
     dnewsub(){ const n=prompt('اسم البند الفرعي الجديد'); if(!n||!n.trim()) return;
       const list=clone(S.cats), c=list.find(x=>x.id===sheet.draft.catId), s={id:uid(8),name:n.trim()};
       c.subs.push(s); Store.saveCats(list); sheet.draft.subId=s.id; renderSheet(); },
@@ -678,7 +709,7 @@ document.addEventListener('click', async ev => {
     docopy(){ navigator.clipboard?.writeText(joinCode()).then(()=>toast('اتنسخ ✓'),()=>toast('انسخه يدوي')); },
     synccreate(){ openSheet('synccreate'); },
     syncjoin(){ openSheet('syncjoin'); },
-    backup(){ const blob=new Blob([JSON.stringify({app:'masroof',v:1,cats:S.cats,exps:S.exps,rems:S.rems},null,1)],{type:'application/json'}); shareFile(blob,`masroof-backup-${today()}.json`); },
+    backup(){ doBackup(); },
     restore(){ const i=document.createElement('input'); i.type='file'; i.accept='.json,application/json';
       i.onchange=async()=>{ try{ const d=JSON.parse(await i.files[0].text()); if(d.app!=='masroof') throw 0;
         if(!confirm(`النسخة فيها ${num(d.exps.length)} مصروف. تسترجعها؟`)) return;
@@ -706,18 +737,80 @@ document.addEventListener('change', ev => {
 window.addEventListener('online', render); window.addEventListener('offline', render);
 
 /* ============ تصدير ============ */
-function exportCSV(){
-  const {cur} = ranges(), [f,t]=cur;
-  const ex = [...repFilter(cur), ...(S.rep.cat?[]:ins().filter(e=>e.date>=f&&e.date<=t))].sort((a,b)=>a.date.localeCompare(b.date));
-  if(!ex.length) return toast('مفيش مصاريف في الفترة دي');
-  const q = s => `"${String(s??'').replace(/"/g,'""')}"`;
-  const lines = [['التاريخ','النوع','البند / المصدر','البند الفرعي','المبلغ','مين','ملاحظة'].map(q).join(',')];
-  ex.forEach(e=>lines.push(isIn(e) ? [e.date,'وارد',e.src,'',e.amount,e.by,e.note].map(q).join(',')
-    : [e.date,'مصروف',catName(e.catId),subName(e.catId,e.subId),e.amount,e.by,e.note].map(q).join(',')));
+function periodEntries([f,t], catFilter){
+  return [...outs().filter(e=>e.date>=f&&e.date<=t&&(!catFilter||e.catId===catFilter)),
+          ...(catFilter?[]:ins().filter(e=>e.date>=f&&e.date<=t))].sort((a,b)=>a.date.localeCompare(b.date));
+}
+function exportCSV(){ const {cur}=ranges(); exportXlsx(periodEntries(cur,S.rep.cat), `masroof-${cur[0]}_${cur[1]}.xlsx`); }
+
+/* ملف Excel حقيقي (.xlsx) من غير مكتبات علشان يشتغل أوفلاين */
+function crc32(u8){
+  const T = crc32.t || (crc32.t = Array.from({length:256},(_,n)=>{let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; return c>>>0;}));
+  let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c=T[(c^u8[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0;
+}
+function zipBlob(files, type){
+  const enc=new TextEncoder(), parts=[], cen=[]; let off=0, n=0;
+  for(const [name,str] of Object.entries(files)){
+    const nm=enc.encode(name), d=enc.encode(str), crc=crc32(d); n++;
+    const h=new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true); h.setUint16(4,20,true); h.setUint16(6,0x0800,true); h.setUint16(12,0x21,true);
+    h.setUint32(14,crc,true); h.setUint32(18,d.length,true); h.setUint32(22,d.length,true); h.setUint16(26,nm.length,true);
+    parts.push(new Uint8Array(h.buffer),nm,d);
+    const c=new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint16(14,0x21,true);
+    c.setUint32(16,crc,true); c.setUint32(20,d.length,true); c.setUint32(24,d.length,true); c.setUint16(28,nm.length,true); c.setUint32(42,off,true);
+    cen.push(new Uint8Array(c.buffer),nm);
+    off += 30+nm.length+d.length;
+  }
+  const cs=cen.reduce((t,a)=>t+a.length,0), e=new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true); e.setUint16(8,n,true); e.setUint16(10,n,true); e.setUint32(12,cs,true); e.setUint32(16,off,true);
+  return new Blob([...parts,...cen,new Uint8Array(e.buffer)],{type});
+}
+function sheetXML(rows, widths){
+  const x = v => String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const col = i => String.fromCharCode(65+i);
+  const data = rows.map((row,ri)=>`<row r="${ri+1}">`+row.map((c,ci)=>{
+    if(c===null||c===undefined||c==='') return '';
+    const o = typeof c==='object' ? c : {v:c}, ref=col(ci)+(ri+1), st=o.s?` s="${o.s}"`:'';
+    return typeof o.v==='number' ? `<c r="${ref}"${st}><v>${o.v}</v></c>` : `<c r="${ref}" t="inlineStr"${st}><is><t>${x(o.v)}</t></is></c>`;
+  }).join('')+'</row>').join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView rightToLeft="1" workbookViewId="0"/></sheetViews><cols>${widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${data}</sheetData></worksheet>`;
+}
+function exportXlsx(ex, name){
+  if(!ex.length) return toast('مفيش حاجة متسجلة في الفترة دي');
+  const H = v => ({v,s:1}), N = v => ({v:+v||0,s:2}), T = v => ({v:+v||0,s:3});
+  const rows = [['التاريخ','النوع','البند / المصدر','البند الفرعي','المبلغ','مين','ملاحظة'].map(H)];
+  ex.forEach(e=>rows.push(isIn(e) ? [e.date,'وارد',e.src||'','',N(e.amount),e.by||'',e.note||'']
+    : [e.date,'مصروف',catName(e.catId),subName(e.catId,e.subId),N(e.amount),e.by||'',e.note||'']));
   const to=sum(ex.filter(e=>!isIn(e))), ti=sum(ex.filter(isIn));
-  lines.push(['','','','إجمالي المصروف',to,'',''].map(q).join(','));
-  if(ti){ lines.push(['','','','إجمالي الوارد',ti,'',''].map(q).join(',')); lines.push(['','','','الفاضل',ti-to,'',''].map(q).join(',')); }
-  shareFile(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}), `masroof-${cur[0]}_${cur[1]}.csv`);
+  rows.push([]); rows.push(['','','',H('إجمالي المصروف'),T(to)]);
+  if(ti){ rows.push(['','','',H('إجمالي الوارد'),T(ti)]); rows.push(['','','',H('الفاضل'),T(ti-to)]); }
+  // ملخص البنود
+  const sm = [[H('البند'),H('البند الفرعي'),H('المبلغ'),H('النسبة ٪')]];
+  S.cats.forEach(c=>{
+    const ce = ex.filter(e=>!isIn(e)&&e.catId===c.id), v=sum(ce); if(!v) return;
+    sm.push([{v:c.name,s:1},'',T(v),{v:to?Math.round(v/to*1000)/10:0,s:3}]);
+    const subs = {}; ce.forEach(e=>{ const k=subName(e.catId,e.subId)||'من غير تفصيل'; subs[k]=(subs[k]||0)+(+e.amount); });
+    Object.entries(subs).sort((a,b)=>b[1]-a[1]).forEach(([k,sv])=>sm.push(['',k,N(sv),{v:to?Math.round(sv/to*1000)/10:0}]));
+  });
+  sm.push([]); sm.push([H('إجمالي المصروف'),'',T(to)]);
+  if(ti){ sm.push([H('إجمالي الوارد'),'',T(ti)]); sm.push([H('الفاضل'),'',T(ti-to)]); }
+  const NS='http://schemas.openxmlformats.org/', X='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const files = {
+    '[Content_Types].xml': `${X}<Types xmlns="${NS}package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    '_rels/.rels': `${X}<Relationships xmlns="${NS}package/2006/relationships"><Relationship Id="rId1" Type="${NS}officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml': `${X}<workbook xmlns="${NS}spreadsheetml/2006/main" xmlns:r="${NS}officeDocument/2006/relationships"><sheets><sheet name="السجل" sheetId="1" r:id="rId1"/><sheet name="ملخص البنود" sheetId="2" r:id="rId2"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `${X}<Relationships xmlns="${NS}package/2006/relationships"><Relationship Id="rId1" Type="${NS}officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${NS}officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="${NS}officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    'xl/styles.xml': `${X}<styleSheet xmlns="${NS}spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE3F0EC"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="1" fillId="2" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
+    'xl/worksheets/sheet1.xml': sheetXML(rows,[12,9,18,16,12,12,24]),
+    'xl/worksheets/sheet2.xml': sheetXML(sm,[18,18,14,10]),
+  };
+  shareFile(zipBlob(files,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), name);
+}
+function doBackup(){
+  const blob=new Blob([JSON.stringify({app:'masroof',v:1,cats:S.cats,exps:S.exps,rems:S.rems},null,1)],{type:'application/json'});
+  shareFile(blob,`masroof-backup-${today()}.json`);
+  settings.lastBackup=Date.now(); saveSettings(); render();
 }
 function shareFile(blob,name){
   const file = new File([blob],name,{type:blob.type});
