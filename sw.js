@@ -1,5 +1,5 @@
 // مصروف البيت: يخلّي التطبيق يفتح من غير نت
-const VERSION = 'masroof-v6';
+const VERSION = 'masroof-v7';
 const SHELL = ['./', './index.html', './manifest.json',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 const FB = 'https://www.gstatic.com/firebasejs/10.12.2/';
@@ -9,7 +9,7 @@ const CACHE_HOSTS = ['www.gstatic.com', 'fonts.googleapis.com', 'fonts.gstatic.c
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(VERSION);
-    await c.addAll(SHELL);
+    await c.addAll(SHELL.map(u => new Request(u, {cache: 'reload'})));
     // مكتبة المزامنة: لو النت مش موجود دلوقتي هتتحفظ أول ما تتحمّل
     await Promise.all(FB_FILES.map(u => c.add(u).catch(() => {})));
   })());
