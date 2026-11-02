@@ -879,9 +879,11 @@ function vSettings(){
 function vSetup(){
   const st = S.setup;
   let h = `<div class="wrap setup"><img class="logo" src="icons/icon-192.png" alt=""><h1>مصروف البيت</h1>`;
-  if(st.step===1) return h + `<p class="muted">حسابات البيت لاتنين، بتشتغل حتى من غير نت.</p>
+  // أول شاشة: الاسم بس، والتطبيق يشتغل على الموبايل على طول. المزامنة موجودة في الإعدادات لمن يحتاجها.
+  if(st.step===1 || !st.mode) return h + `<p class="muted">حسابات بيتك في مكان واحد، وبتشتغل حتى من غير نت.</p>
     <label class="f">اسمك إيه؟</label><input class="inp" id="nm" autocomplete="given-name" value="${esc(settings.userName||'')}">
-    <button class="btn" data-act="s-name">يلا</button></div>`;
+    <button class="btn" data-act="s-name">يلا نبدأ</button>
+    <p class="small muted" style="text-align:center;margin-top:14px">حساباتك بتتحفظ على موبايلك بس، ومحدش يقدر يشوفها غيرك.</p></div>`;
   if(st.mode==='create') return h + createSyncHTML() + `<button class="btn ghost" data-act="s-back">رجوع</button></div>`;
   if(st.mode==='join') return h + joinHTML() + `<button class="btn ghost" data-act="s-back">رجوع</button></div>`;
   return h + `<p class="muted">أهلاً ${esc(settings.userName)}، هتستخدموه إزاي؟</p>
@@ -1101,7 +1103,7 @@ document.addEventListener('click', async ev => {
   if(a==='scrim'){ if(ev.target===el) closeSheet(); return; }
   const go = window.__go = {
     // setup
-    's-name'(){ const n=$('#nm').value.trim(); if(!n) return toast('اكتب اسمك'); settings.userName=n; saveSettings(); S.setup.step=2; render(); },
+    's-name'(){ const n=$('#nm').value.trim(); if(!n) return toast('اكتب اسمك'); settings.userName=n; settings.mode='local'; saveSettings(); start(); },
     's-edit-name'(){ S.setup.step=1; render(); },
     's-mode'(){ S.setup.mode=v; render(); },
     's-back'(){ S.setup.mode=''; render(); },
