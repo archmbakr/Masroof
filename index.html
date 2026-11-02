@@ -176,6 +176,13 @@ nav.tabs svg{width:24px;height:24px}
 .cmpt .up{color:var(--danger)} .cmpt .down{color:var(--accent)}
 .hbar i.a{background:var(--accent)} .hbar i.b{background:#8FB9AD} .hbar i.o{background:var(--line)}
 .hbar small{font-size:10px;color:var(--muted);white-space:nowrap}
+.fxrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.fxrow:first-child{border-top:0}
+.fxrow.off .t{text-decoration:line-through;opacity:.5}
+.chk{width:28px;height:28px;border-radius:9px;border:2px solid var(--accent);display:grid;place-items:center;flex:none;color:var(--accent-ink);font-weight:700}
+.chk.on{background:var(--accent)}
+.fxamt{width:100px;flex:none;text-align:center;padding:8px;min-height:42px;font-variant-numeric:tabular-nums}
+.fxamt:disabled{opacity:.4}
 .search{position:relative;margin-top:12px}
 .search .inp{padding-inline-start:40px}
 .search svg{position:absolute;inset-inline-start:13px;top:13px;width:20px;height:20px;color:var(--muted)}
@@ -267,7 +274,7 @@ const ins = () => S.exps.filter(isIn);
 const INC_SRC = ['مرتب','شغل إضافي','جمعية','أخرى'];
 const incSources = () => [...new Set([...INC_SRC, ...ins().map(e=>e.src).filter(Boolean)])];
 /* ---------- الشهور: من القبض للقبض ---------- */
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 const addDays = (d,k) => { const [y,m,dd]=d.split('-').map(Number); return ds(new Date(y,m-1,dd+k)); };
 const dayCount = (a,b) => Math.round((new Date(b+'T12:00')-new Date(a+'T12:00'))/864e5)+1;
 const lastDay = ym => { const [y,m]=ym.split('-').map(Number); return ds(new Date(y,m,0)); };
@@ -304,6 +311,24 @@ function pStats(r, carry){
   const out = outs().filter(e=>e.date>=r[0]&&e.date<=r[1]), incOnly = sum(ins().filter(e=>e.date>=r[0]&&e.date<=r[1]));
   const spent = sum(out), inc = incOnly + (carry||0);
   return {out, spent, inc, left: inc-spent};
+}
+/* ---------- المصاريف الثابتة ---------- */
+const isAuto = r => !!r.auto && +r.amount>0;
+function fixedPending(p){
+  p = p || curP(); const sk = (settings.fixedSkip||{})[p.id] || [];
+  return S.rems.filter(r=>isAuto(r) && !sk.includes(r.id) && !S.exps.some(e=>e.remId===r.id && inP(e,p)));
+}
+function openFixed(p, list){
+  list = list || fixedPending(p); if(!list.length) return;
+  openSheet('fixed',{pid:p.id, items:list.map(r=>({id:r.id, on:true, amount:String(r.amount)}))});
+}
+function maybeFixedPrompt(){
+  if(sheet || S.locked || !S.ready || S.view!=='home') return;
+  const p = curP(); if((settings.fixedPrompted||{})[p.id]) return;
+  const list = fixedPending(p).filter(r=>!r.autoSince || r.autoSince<=p.start);
+  if(!list.length) return;
+  settings.fixedPrompted = {...(settings.fixedPrompted||{}), [p.id]:true}; saveSettings();
+  openFixed(p, list);
 }
 function calcEval(x){
   x = String(x||'').replace(/[٠-٩]/g,d=>d.charCodeAt(0)-1632).replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-').replace(/٫/g,'.');
@@ -369,7 +394,7 @@ async function start(){
   S.err=''; S.ready=false;
   try { navigator.storage?.persist?.().catch(()=>{}); } catch {}
   if(settings.appVer!==APP_VERSION){ const upgraded = !!settings.userName && settings.mode; settings.appVer=APP_VERSION; saveSettings();
-    if(upgraded) setTimeout(()=>toast('اتحدّث التطبيق ✓ فيه دلوقتي إنهاء الشهر ومقارنة الشهور', null, null, 5000), 900); }
+    if(upgraded) setTimeout(()=>toast('اتحدّث التطبيق ✓ فيه دلوقتي خصم المصاريف الثابتة أول كل شهر', null, null, 5000), 900); }
   if(!settings.userName || !settings.mode){ render(); return; }
   Store = settings.mode==='cloud' ? Cloud : Local;
   try { await Store.init(); }
@@ -405,6 +430,7 @@ function render(){
     <button class="fab" data-act="add" aria-label="تسجيل مصروف">+</button>
     <nav class="tabs"><div class="wrap">${tab('home','الرئيسية')}${tab('list','المصاريف')}${tab('rep','التقارير')}${tab('set','الإعدادات')}</div></nav>`;
   if(!sheet) renderSheet(); // الشيت المفتوح ما يتعادش رسمه علشان ما يضيعش اللي بتكتبه لو وصلت مزامنة
+  maybeFixedPrompt();
 }
 
 function monthBar(){
@@ -421,7 +447,7 @@ function remDue(r, p){
 }
 function dueReminders(){
   const p = curP(), t = today();
-  return S.rems.filter(r=>!S.exps.some(e=>e.remId===r.id && inP(e,p)))
+  return S.rems.filter(r=>!isAuto(r) && !S.exps.some(e=>e.remId===r.id && inP(e,p)))
     .map(r=>{ const due = remDue(r,p), left = dayCount(t,due)-1; return {...r, due, late: t>due, soon: t<=due && left<=3}; })
     .sort((a,b)=>a.due.localeCompare(b.due));
 }
@@ -469,6 +495,9 @@ function vHome(){
 
   if(isCur) h += budgetAlerts(ex) + quickCard();
   if(isCur){
+    const fp = fixedPending(p);
+    if(fp.length) h += `<div class="card"><div class="row between" style="gap:12px"><div class="grow"><h3 style="margin:0 0 2px">مصاريف ثابتة لسه ما اتخصمتش</h3>
+      <div class="small muted">${fp.map(r=>esc(r.name)).join('، ')} · ${money(sum(fp))}</div></div><button class="mini" data-act="fixopen">خصم</button></div></div>`;
     const due = dueReminders();
     if(due.length) h += `<div class="card"><h3>لسه ما اتسجلش الشهر ده</h3>${due.map(r=>`
       <button class="due" data-act="payrem" data-id="${r.id}">
@@ -825,10 +854,13 @@ function vSettings(){
     ${S.goals.length ? S.goals.map(g=>`<button class="item" data-act="editgoal" data-id="${g.id}"><span class="dot" style="background:#0891B2"></span>
       <span class="grow"><div class="t">${esc(g.name)}</div><div class="s">${money(goalSaved(g))} من ${money(g.target)}</div></span></button>`).join('')
     : '<p class="small muted" style="margin:8px 0 0">مثلاً مصيف أو عربية: حط المبلغ، وكل ما تحوّش له يتحسب.</p>'}</div>`;
-  h += `<div class="card"><div class="row between"><h3 style="margin:0">تذكير المصاريف الثابتة</h3><button class="link" data-act="newrem">+ تذكير</button></div>
-    ${S.rems.length ? [...S.rems].sort((a,b)=>a.day-b.day).map(r=>`<button class="item" data-act="editrem" data-id="${r.id}"><span class="dot" style="background:${catColor(r.catId)}"></span>
-      <span class="grow"><div class="t">${esc(r.name)}</div><div class="s">كل شهر يوم ${num(r.day)} · ${esc(subName(r.catId,r.subId)||catName(r.catId))}</div></span></button>`).join('')
-    : '<p class="small muted" style="margin:8px 0 0">زي الكهربا والغفير والدروس. التطبيق هيفكّرك بيهم في الرئيسية لحد ما تسجّلهم، وانت بتكتب المبلغ كل شهر.</p>'}</div>`;
+  { const fx = [...S.rems].sort((a,b)=>(isAuto(b)-isAuto(a)) || a.day-b.day), autos = S.rems.filter(isAuto);
+  h += `<div class="card"><div class="row between"><h3 style="margin:0">المصاريف الثابتة</h3><button class="link" data-act="newrem">+ مصروف ثابت</button></div>
+    ${fx.length ? fx.map(r=>`<button class="item" data-act="editrem" data-id="${r.id}"><span class="dot" style="background:${catColor(r.catId)}"></span>
+      <span class="grow"><div class="t">${esc(r.name)}</div><div class="s">${isAuto(r)?'بيتخصم أول كل شهر':`تذكير يوم ${num(r.day)} · المبلغ بيتغير`} · ${esc(subName(r.catId,r.subId)||catName(r.catId))}</div></span>
+      ${isAuto(r)?`<span class="amt">${money(r.amount)}</span>`:''}</button>`).join('')
+      + (autos.length?`<div class="row between small muted" style="padding-top:10px;border-top:1px solid var(--line)"><span>إجمالي اللي بيتخصم كل شهر</span><b style="color:var(--ink)">${money(sum(autos))}</b></div>`:'')
+    : '<p class="small muted" style="margin:8px 0 0">زي الإيجار والغفير والإنترنت: حط المبلغ مرة واحدة، والتطبيق يخصمه أول كل شهر بعد ما توافق. واللي مبلغه بيتغير زي الكهربا، خليه تذكير بس.</p>'}</div>`; }
   if(settings.mode==='cloud'){
     h += `<div class="card"><h3>المزامنة</h3><p class="small muted" style="margin-top:0">علشان الموبايل التاني ينضم، ابعتله كود الانضمام ويحطه في أول شاشة.</p>
       <button class="btn" data-act="sharecode">ابعت كود الانضمام</button></div>`;
@@ -893,7 +925,7 @@ function renderSheet(){
   const root=$('#sheet');
   if(!sheet){ root.innerHTML=''; return; }
   const old = root.querySelector('.sheet'), scroll = old?.scrollTop||0;
-  const body = {endp:shEndP, editp:shEditP, pin:shPin, sc:shSc, g:shG, goal:shGoal, export:shExport, exp:shExp, cat:shCat, rem:shRem, code:shCode, synccreate:()=>`<h2>تفعيل المزامنة</h2>${createSyncHTML()}`, syncjoin:()=>`<h2>انضمام</h2>${joinHTML()}`}[sheet.type]();
+  const body = {fixed:shFixed, endp:shEndP, editp:shEditP, pin:shPin, sc:shSc, g:shG, goal:shGoal, export:shExport, exp:shExp, cat:shCat, rem:shRem, code:shCode, synccreate:()=>`<h2>تفعيل المزامنة</h2>${createSyncHTML()}`, syncjoin:()=>`<h2>انضمام</h2>${joinHTML()}`}[sheet.type]();
   root.innerHTML = `<div class="scrim${old?'':' anim'}" data-act="scrim"><div class="sheet"><div class="grab"></div><button class="close" data-act="close" aria-label="رجوع">✕</button>${body}<button class="btn ghost" data-act="close">إلغاء</button></div></div>`;
   root.querySelector('.sheet').scrollTop = scroll;
 }
@@ -1028,17 +1060,33 @@ function shCat(){
 }
 
 function shRem(){
-  const d = sheet.draft, c = cat(d.catId)||S.cats[0];
-  return `<h2>${d._new?'تذكير جديد':'تعديل التذكير'}</h2>
-    <p class="small muted" style="margin:0">هيظهرلك في الرئيسية كل شهر لحد ما تسجّله، والمبلغ بتكتبه بنفسك.</p>
-    <label class="f">الاسم</label><input class="inp" data-rmf="name" value="${esc(d.name)}" placeholder="مثلاً: فاتورة الكهرباء">
+  const d = sheet.draft, c = cat(d.catId)||S.cats[0], auto = !!d.auto;
+  const M = (k,t) => `<button class="${(k==='auto')===auto?'on':''}" data-act="rmode" data-v="${k}">${t}</button>`;
+  return `<h2>${d._new?'مصروف ثابت جديد':'تعديل المصروف الثابت'}</h2>
+    <label class="f">الاسم</label><input class="inp" data-rmf="name" value="${esc(d.name)}" placeholder="${auto?'مثلاً: الإيجار':'مثلاً: فاتورة الكهرباء'}">
+    <div class="seg" style="margin-top:14px">${M('auto','مبلغ ثابت يتخصم لوحده')}${M('remind','مبلغه بيتغير')}</div>
+    ${auto ? `<label class="f">المبلغ كل شهر</label><input class="inp" data-rmf="amount" inputmode="decimal" value="${esc(d.amount||'')}" placeholder="مثلاً ٣٠٠٠">
+      <p class="small muted" style="margin:6px 0 0">أول كل شهر هتظهرلك رسالة بالمصاريف الثابتة، تشيل منها اللي مش عاوزه أو تغيّر مبلغه، وتخصمهم مرة واحدة.</p>`
+    : `<label class="f">يوم كام في الشهر؟</label><input class="inp" data-rmf="day" inputmode="numeric" value="${d.day}">
+      <p class="small muted" style="margin:6px 0 0">هيظهرلك في الرئيسية لحد ما تسجّله، وانت بتكتب المبلغ كل مرة.</p>`}
     <label class="f">البند</label><select class="inp" data-rmf="catId">${S.cats.map(x=>`<option value="${x.id}" ${x.id===c.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
     <label class="f">البند الفرعي</label><select class="inp" data-rmf="subId"><option value="">بدون</option>${c.subs.map(s=>`<option value="${s.id}" ${d.subId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select>
-    <label class="f">يوم كام في الشهر؟</label><input class="inp" data-rmf="day" inputmode="numeric" value="${d.day}">
     <button class="btn" data-act="saverem">حفظ</button>
-    ${d._new?'':'<button class="btn danger" data-act="delrem">حذف التذكير</button>'}`;
+    ${d._new?'':'<button class="btn danger" data-act="delrem">حذف</button>'}`;
 }
-
+function fxTotal(d){ return d.items.filter(i=>i.on).reduce((t,i)=>t+(calcEval(i.amount)||0),0); }
+function shFixed(){
+  const d = sheet.draft, p = allPeriods().find(x=>x.id===d.pid) || curP(), on = d.items.filter(i=>i.on), tot = fxTotal(d);
+  return `<h2>المصاريف الثابتة</h2>
+    <p class="small muted" style="margin:0">شهر جديد بدأ ${fmtDay(p.start)}. هيتخصم المصاريف الثابتة دي، شيل العلامة من اللي مش عاوزه الشهر ده، أو غيّر المبلغ لو اختلف.</p>
+    <div class="card" style="margin:12px 0 0;padding:4px 16px">${d.items.map((i,k)=>{ const r = S.rems.find(x=>x.id===i.id); if(!r) return '';
+      return `<div class="fxrow ${i.on?'':'off'}"><button class="chk ${i.on?'on':''}" data-act="fxtog" data-i="${k}" aria-label="${i.on?'شيل':'اختار'} ${esc(r.name)}">${i.on?'✓':''}</button>
+        <div class="grow"><div class="t">${esc(r.name)}</div><div class="small muted">${esc(subName(r.catId,r.subId)||catName(r.catId))}</div></div>
+        <input class="inp fxamt" data-fx="${k}" inputmode="decimal" value="${esc(i.amount)}" ${i.on?'':'disabled'} aria-label="مبلغ ${esc(r.name)}"></div>`; }).join('')}</div>
+    <div class="row between" style="margin:10px 4px 0"><span class="muted">الإجمالي</span><b class="amt" id="fxtot">${money(tot)}</b></div>
+    <button class="btn" data-act="fxdo" id="fxbtn">${on.length?`خصم ${num(on.length)} بـ ${money(tot)}`:'مش هخصم حاجة الشهر ده'}</button>
+    <p class="small muted" style="margin:10px 0 0;text-align:center">لو قفلت دلوقتي، هتلاقيهم في الرئيسية تخصمهم وقت ما تحب.</p>`;
+}
 function shCode(){
   return `<h2>كود الانضمام</h2>
     <p class="small muted">ابعته للموبايل التاني، وهو يختار "معايا كود انضمام" ويلصقه. أي حد معاه الكود ده يقدر يشوف حساباتكم، فابعته ليه بس.</p>
@@ -1190,12 +1238,30 @@ document.addEventListener('click', async ev => {
       if(S.cats.length<=1) return toast('لازم يفضل بند واحد على الأقل');
       if(confirm('تحذف البند؟')){ Store.saveCats(S.cats.filter(x=>x.id!==d.id)); closeSheet(); } },
     // reminders
-    newrem(){ openSheet('rem',{_new:true,id:uid(),name:'',catId:'bills',subId:'',day:1,lastAmount:0}); if(!cat('bills')) sheet.draft.catId=S.cats[0].id; renderSheet(); },
+    newrem(){ openSheet('rem',{_new:true,id:uid(),name:'',catId:'bills',subId:'',day:1,lastAmount:0,auto:true,amount:''}); if(!cat('bills')) sheet.draft.catId=S.cats[0].id; renderSheet(); },
+    rmode(){ sheet.draft.auto = v==='auto'; if(sheet.draft.auto && !sheet.draft.amount && sheet.draft.lastAmount) sheet.draft.amount=String(sheet.draft.lastAmount); renderSheet(); },
+    fixopen(){ openFixed(curP()); },
+    fxtog(){ const it=sheet.draft.items[+el.dataset.i]; it.on=!it.on; renderSheet(); },
+    fxdo(){ const d=sheet.draft, p=allPeriods().find(x=>x.id===d.pid)||curP(), made=[], skip=[];
+      for(const i of d.items){ if(!i.on){ skip.push(i.id); continue; }
+        const a=calcEval(i.amount); const r=S.rems.find(x=>x.id===i.id); if(!r) continue;
+        if(!(a>0)) return toast('اكتب مبلغ '+r.name);
+        made.push({id:uid(),type:'out',amount:a,catId:r.catId,subId:r.subId||'',date:p.start,note:r.name,by:settings.userName,remId:r.id,gameyaId:'',goalId:'',fixed:true,createdAt:Date.now()}); }
+      const sk = {...(settings.fixedSkip||{})}; sk[p.id] = [...new Set([...(sk[p.id]||[]), ...skip])];
+      settings.fixedSkip = sk; settings.fixedPrompted = {...(settings.fixedPrompted||{}), [p.id]:true}; saveSettings();
+      made.forEach(e=>Store.putExp(e)); closeSheet(); goHome();
+      if(!made.length) return toast('تمام، مفيش خصم الشهر ده');
+      toast(`اتخصم ${num(made.length)} مصاريف ثابتة بـ ${money(sum(made))} ✓`, 'تراجع', ()=>{
+        made.forEach(e=>Store.delExp(e.id)); const s2={...(settings.fixedSkip||{})}; s2[p.id]=(s2[p.id]||[]).filter(x=>!skip.includes(x)); settings.fixedSkip=s2; saveSettings(); render(); toast('رجع ✓'); }, 7000); },
     editrem(){ openSheet('rem',clone(S.rems.find(x=>x.id===id))); },
-    saverem(){ const d=sheet.draft, day=Math.round(parseNum(d.day));
-      if(!d.name.trim()) return toast('اكتب اسم التذكير'); if(!(day>=1&&day<=31)) return toast('اليوم لازم يبقى من ١ لـ ٣١');
-      Store.putRem({id:d.id,name:d.name.trim(),catId:d.catId,subId:d.subId||'',day,lastAmount:d.lastAmount||0}); closeSheet(); toast('اتحفظ ✓'); },
-    delrem(){ if(confirm('تحذف التذكير؟')){ Store.delRem(sheet.draft.id); closeSheet(); } },
+    saverem(){ const d=sheet.draft, old=S.rems.find(x=>x.id===d.id);
+      if(!d.name.trim()) return toast('اكتب الاسم');
+      if(d.auto){ const a=calcEval(d.amount); if(!(a>0)) return toast('اكتب المبلغ اللي بيتخصم كل شهر');
+        Store.putRem({id:d.id,name:d.name.trim(),catId:d.catId,subId:d.subId||'',day:Math.round(parseNum(d.day))||1,lastAmount:d.lastAmount||0,auto:true,amount:a,autoSince:(old&&isAuto(old)&&old.autoSince)||today()});
+        closeSheet(); return toast(old&&isAuto(old)?'اتحفظ ✓':'اتحفظ ✓ هيتخصم أول كل شهر'); }
+      const day=Math.round(parseNum(d.day)); if(!(day>=1&&day<=31)) return toast('اليوم لازم يبقى من ١ لـ ٣١');
+      Store.putRem({id:d.id,name:d.name.trim(),catId:d.catId,subId:d.subId||'',day,lastAmount:d.lastAmount||0,auto:false,amount:0}); closeSheet(); toast('اتحفظ ✓'); },
+    delrem(){ if(confirm('تحذف المصروف الثابت ده؟ اللي اتسجل منه قبل كده هيفضل.')){ Store.delRem(sheet.draft.id); closeSheet(); } },
     // reports
     rpre(){ S.rep.preset=v; render(); },
     rby(){ S.rep.by=v; render(); },
@@ -1226,6 +1292,8 @@ document.addEventListener('input', ev => {
   else if(ds_.sub!==undefined){ sheet.draft.subs[+ds_.sub].name=t.value; }
   else if(ds_.rmf){ sheet.draft[ds_.rmf]=t.value; if(ds_.rmf==='catId'){ sheet.draft.subId=''; renderSheet(); } }
   else if(ds_.gf){ sheet.draft[ds_.gf]=t.value; if(ds_.gf==='catId' && 'subId' in sheet.draft){ sheet.draft.subId=''; renderSheet(); } }
+  else if(ds_.fx!==undefined){ const d=sheet.draft; d.items[+ds_.fx].amount=t.value; const tot=fxTotal(d), on=d.items.filter(i=>i.on).length;
+    const a=$('#fxtot'), b=$('#fxbtn'); if(a) a.textContent=money(tot); if(b) b.textContent = on?`خصم ${num(on)} بـ ${money(tot)}`:'مش هخصم حاجة الشهر ده'; }
   else if(ds_.cmp){ S.cmp[ds_.cmp]=t.value; if(ds_.cmp==='a' && S.cmp.b===t.value) S.cmp.b=''; render(); }
   else if(ds_.q!==undefined){ S.list.q=t.value; const r=$('#lres'); if(r) r.innerHTML=listResults();
     const mb=document.querySelector('main .monthbar'); if(mb) mb.style.display=t.value.trim()?'none':''; }
